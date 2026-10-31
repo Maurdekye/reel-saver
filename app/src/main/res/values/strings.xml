@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Reel Saver</string>
+    <string name="share_label">Save reel</string>
+    <color name="ic_launcher_background">#E1306C</color>
+</resources>
