@@ -1,5 +1,10 @@
 package io.github.maurdekye.reelsaver;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.json.JSONTokener;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,7 +35,7 @@ final class ReelExtractor {
     private static final Pattern URL_IN_TEXT =
             Pattern.compile("https?://[^\\s\"'<>]+");
     private static final Pattern SHORTCODE =
-            Pattern.compile("instagram\\.com/(?:[^/\\s?#]+/)?(reels?|p|tv)/([A-Za-z0-9_-]{5,})");
+            Pattern.compile("instagram\\.com/(?:(?!share/)[^/\\s?#]+/)?(reels?|p|tv)/([A-Za-z0-9_-]+)");
     private static final Pattern VIDEO_URL_JSON =
             Pattern.compile("video_url\\\\*\":\\\\*\"(.+?)\\\\*\"");
     private static final Pattern OG_VIDEO_A =
@@ -87,7 +92,7 @@ final class ReelExtractor {
         if (after.find()) {
             return new ReelRef(normalizeType(after.group(1)), after.group(2));
         }
-        throw new ReelException("That link doesn't look like an Instagram reel.");
+        throw new ReelException("That link doesn't look like an Instagram post or reel.");
     }
 
     private static String normalizeType(String type) {
@@ -120,7 +125,7 @@ final class ReelExtractor {
      * Tries the public pages in order and returns the direct MP4 URL.
      * The embed page is smallest and most reliable; the normal page is the fallback.
      */
-    static String resolveVideoUrl(ReelRef ref) throws ReelException, IOException {
+    static Media resolveMedia(ReelRef ref) throws ReelException, IOException {
         String base = "https://www.instagram.com/" + ref.type + "/" + ref.code + "/";
         String[][] attempts = {
                 {base + "embed/captioned/", CRAWLER_UA},
@@ -129,6 +134,7 @@ final class ReelExtractor {
                 {base, APP_UA},
         };
         IOException lastError = null;
+        boolean knownPhotoPost = false;
         for (String[] attempt : attempts) {
             String html;
             try {
@@ -137,16 +143,68 @@ final class ReelExtractor {
                 lastError = e;
                 continue;
             }
+            if ("p".equals(ref.type)) {
+                List<String> images = parseImages(html, ref.code);
+                if (!images.isEmpty()) return new Media(null, images);
+                // A carousel cover or a video slide is never the whole collection.
+                if (html.contains("data-media-type=\"GraphSidecar\"")
+                        || html.contains("data-media-type=\"GraphImage\"")) knownPhotoPost = true;
+                if (knownPhotoPost) continue;
+            }
             String videoUrl = parseVideoUrl(html);
             if (videoUrl != null) {
-                return videoUrl;
+                return new Media(videoUrl, java.util.Collections.emptyList());
             }
         }
         if (lastError != null) {
             throw lastError;
         }
         throw new ReelException(
-                "Couldn't get this reel's video. It may be from a private account.");
+                "Couldn't read the media in this post. It may be from a private account.");
+    }
+
+    static final class Media {
+        final String videoUrl;
+        final List<String> images;
+
+        Media(String videoUrl, List<String> images) {
+            this.videoUrl = videoUrl;
+            this.images = images;
+        }
+    }
+
+    private static final Pattern EMBED_IMAGE = Pattern.compile(
+            "<img\\b(?=[^>]*\\bclass=\"EmbeddedMediaImage\")[^>]*?\\bsrc=\"([^\"]+)\"");
+    private static final Pattern CONTEXT = Pattern.compile("\"contextJSON\"\\s*:\\s*(?=\")");
+
+    static List<String> parseImages(String html, String code) throws ReelException {
+        List<String> images = new ArrayList<>();
+        if (html.contains("data-media-type=\"GraphImage\"")) {
+            Matcher image = EMBED_IMAGE.matcher(html);
+            if (image.find()) images.add(unescape(image.group(1)));
+        } else if (html.contains("data-media-type=\"GraphSidecar\"")) {
+            Matcher context = CONTEXT.matcher(html);
+            while (context.find()) {
+                try {
+                    String json = (String) new JSONTokener(html.substring(context.end())).nextValue();
+                    JSONObject post = new JSONObject(json).getJSONObject("gql_data")
+                            .getJSONObject("shortcode_media");
+                    if (!code.equals(post.optString("shortcode"))) continue;
+                    JSONArray edges = post.getJSONObject("edge_sidecar_to_children")
+                            .getJSONArray("edges");
+                    for (int i = 0; i < edges.length(); i++) {
+                        JSONObject node = edges.getJSONObject(i).getJSONObject("node");
+                        if (node.getBoolean("is_video")) continue;
+                        images.add(node.getString("display_url"));
+                    }
+                    if (images.isEmpty()) throw new ReelException("This carousel has no photos.");
+                    return images;
+                } catch (JSONException e) {
+                    images.clear();
+                }
+            }
+        }
+        return images;
     }
 
     static String parseVideoUrl(String html) {

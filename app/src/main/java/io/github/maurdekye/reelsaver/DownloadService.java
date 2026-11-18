@@ -25,6 +25,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -69,8 +72,7 @@ public class DownloadService extends Service {
             try {
                 download(text);
             } finally {
-                stopForeground(STOP_FOREGROUND_REMOVE);
-                stopSelf(startId);
+                stopSelfResult(startId);
             }
         });
         return START_NOT_STICKY;
@@ -93,61 +95,108 @@ public class DownloadService extends Service {
             ReelExtractor.ReelRef ref = ReelExtractor.parseSharedText(sharedText);
             Log.i(TAG, "Reel " + ref.type + "/" + ref.code);
 
-            status("Finding the video…");
-            String videoUrl = ReelExtractor.resolveVideoUrl(ref);
-            Log.i(TAG, "Video URL found for " + ref.code);
-
-            status("Downloading…");
-            Uri saved = saveVideo(videoUrl, "reel_" + ref.code + ".mp4");
-            String name = displayName(saved);
-            status("Saved “" + name + "” to Movies/Reel Saver.");
-            toast("Reel saved: " + name);
-            notifySaved(saved, name);
+            status("Finding shared media...");
+            ReelExtractor.Media media = ReelExtractor.resolveMedia(ref);
+            boolean photos = !media.images.isEmpty();
+            String folder = photos ? photoFolder(ref.code) : "Movies/Reel Saver";
+            List<Uri> saved = new ArrayList<>();
+            try {
+                if (photos) {
+                    for (int i = 0; i < media.images.size(); i++) {
+                        status("Downloading photo " + (i + 1) + " of " + media.images.size());
+                        saved.add(saveFile(media.images.get(i), folder,
+                                String.format(Locale.ROOT, "%02d", i + 1), true));
+                    }
+                } else {
+                    saved.add(saveFile(media.videoUrl, folder, "reel_" + ref.code, false));
+                }
+                ContentValues publish = new ContentValues();
+                publish.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                for (Uri uri : saved) {
+                    if (getContentResolver().update(uri, publish, null, null) != 1) {
+                        throw new IOException("Couldn't publish the downloaded media.");
+                    }
+                }
+            } catch (Exception e) {
+                for (Uri uri : saved) getContentResolver().delete(uri, null, null);
+                throw e;
+            }
+            String name = photos ? saved.size() + (saved.size() == 1 ? " photo" : " photos")
+                    : displayName(saved.get(0));
+            String message = "Saved " + name + " to " + folder + ".";
+            status(message);
+            toast(message);
+            notifySaved(saved.get(0), name, photos, folder);
         } catch (ReelExtractor.ReelException e) {
             fail(e.getMessage());
         } catch (IOException e) {
             Log.e(TAG, "Network failure", e);
-            fail("Download failed: couldn't reach Instagram. Check your connection and try again.");
+            fail("Download failed. " + e.getMessage());
         } catch (Exception e) {
             Log.e(TAG, "Unexpected failure", e);
             fail("Download failed: " + e.getMessage());
         }
     }
 
-    private Uri saveVideo(String videoUrl, String fileName) throws IOException {
-        HttpURLConnection conn = ReelExtractor.open(videoUrl, ReelExtractor.CRAWLER_UA);
+    private String photoFolder(String code) {
+        String base = "Download/Reel Saver/" + code;
+        String path = base;
+        for (int copy = 2; ; copy++) {
+            try (Cursor cursor = getContentResolver().query(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    new String[]{MediaStore.MediaColumns._ID}, "relative_path = ?",
+                    new String[]{path + "/"}, null)) {
+                if (cursor == null || !cursor.moveToFirst()) return path;
+            }
+            path = base + " (" + copy + ")";
+        }
+    }
+
+    private Uri saveFile(String url, String folder, String stem, boolean photo) throws IOException {
+        HttpURLConnection conn = ReelExtractor.open(url, ReelExtractor.CRAWLER_UA);
         conn.setRequestProperty("Referer", "https://www.instagram.com/");
         try {
             int status = conn.getResponseCode();
             if (status < 200 || status >= 300) {
-                throw new IOException("Video server returned HTTP " + status);
+                throw new IOException("Media server returned HTTP " + status);
             }
             String contentType = conn.getContentType();
             long total = conn.getContentLengthLong();
 
+            String mime = "video/mp4";
+            String ext = ".mp4";
+            if (photo) {
+                mime = contentType == null ? "" : contentType.split(";", 2)[0].trim();
+                switch (mime) {
+                    case "image/jpeg": ext = ".jpg"; break;
+                    case "image/png": ext = ".png"; break;
+                    case "image/webp": ext = ".webp"; break;
+                    case "image/avif": ext = ".avif"; break;
+                    default: throw new IOException("The photo server returned an unsupported format.");
+                }
+            }
             ContentResolver resolver = getContentResolver();
             ContentValues values = new ContentValues();
-            values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-            values.put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4");
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH, "Movies/Reel Saver");
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, stem + ext);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, folder);
             values.put(MediaStore.MediaColumns.IS_PENDING, 1);
             Uri uri = resolver.insert(
-                    MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    photo ? MediaStore.Downloads.EXTERNAL_CONTENT_URI : MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
                     values);
-            if (uri == null) throw new IOException("Couldn't create the video file.");
+            if (uri == null) throw new IOException("Couldn't create the media file.");
 
             boolean checkedHeader = false;
             long copied = 0;
             try (InputStream in = conn.getInputStream();
                  OutputStream out = resolver.openOutputStream(uri)) {
-                if (out == null) throw new IOException("Couldn't open the video file for writing.");
+                if (out == null) throw new IOException("Couldn't open the media file for writing.");
                 byte[] buffer = new byte[64 * 1024];
                 int read;
                 int lastPercent = -1;
                 while ((read = in.read(buffer)) != -1) {
                     if (!checkedHeader) {
                         checkedHeader = true;
-                        if (!looksLikeMp4(buffer, read)
+                        if (!photo && !looksLikeMp4(buffer, read)
                                 && (contentType == null || !contentType.startsWith("video"))) {
                             throw new IOException("What came back wasn't a video.");
                         }
@@ -162,17 +211,11 @@ public class DownloadService extends Service {
                         }
                     }
                 }
-            } catch (IOException e) {
+                if (copied == 0 || (total >= 0 && copied != total)) throw new IOException("Incomplete download.");
+            } catch (IOException | RuntimeException e) {
                 resolver.delete(uri, null, null);
                 throw e;
             }
-            if (copied == 0) {
-                resolver.delete(uri, null, null);
-                throw new IOException("The download was empty.");
-            }
-            ContentValues publish = new ContentValues();
-            publish.put(MediaStore.MediaColumns.IS_PENDING, 0);
-            resolver.update(uri, publish, null, null);
             Log.i(TAG, "Saved " + copied + " bytes to " + uri);
             return uri;
         } finally {
@@ -223,16 +266,16 @@ public class DownloadService extends Service {
         return builder.build();
     }
 
-    private void notifySaved(Uri videoUri, String name) {
+    private void notifySaved(Uri uri, String name, boolean photos, String folder) {
         Intent view = new Intent(Intent.ACTION_VIEW);
-        view.setDataAndType(videoUri, "video/mp4");
+        view.setDataAndType(uri, photos ? getContentResolver().getType(uri) : "video/mp4");
         view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         PendingIntent pending = PendingIntent.getActivity(this, 1, view,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification notification = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("Reel saved")
-                .setContentText(name + " — in Movies/Reel Saver")
+                .setContentTitle(photos ? "Photos saved" : "Reel saved")
+                .setContentText(name + " in " + folder)
                 .setContentIntent(pending)
                 .setAutoCancel(true)
                 .build();

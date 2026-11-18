@@ -20,7 +20,7 @@ val releaseStoreFile: String? = signingValue("REELSAVER_KEYSTORE_FILE", "storeFi
 val hasReleaseSigning = releaseStoreFile != null && file(releaseStoreFile).exists()
 
 // The one place the version lives. Release tags must be "v" + this (checked by the release workflow).
-val appVersion = "1.0.0"
+val appVersion = "1.1.0"
 val appVersionCode = appVersion.split('.').map { it.toInt() }.let { (major, minor, patch) ->
     major * 10_000 + minor * 100 + patch
 }

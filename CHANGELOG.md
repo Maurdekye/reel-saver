@@ -2,6 +2,10 @@
 
 Each release's notes on GitHub come from its section here. Add a section before tagging a release. Keep each bullet on one line, since GitHub shows line breaks in release notes as they are.
 
+## 1.1.0 (2026-11-18)
+
+- Share a public Instagram photo or carousel to save its photos in order under **Download/Reel Saver**, in a folder named for the post. Reels still save to **Movies/Reel Saver**.
+
 ## 1.0.0 (2026-10-31)
 
 First release.

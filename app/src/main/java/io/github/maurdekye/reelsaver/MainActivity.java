@@ -61,16 +61,16 @@ public class MainActivity extends Activity {
         layout.setPadding(pad, pad, pad, pad);
 
         TextView title = new TextView(this);
-        title.setText("Save an Instagram reel");
+        title.setText("Save an Instagram post");
         title.setTextSize(22);
         title.setTypeface(null, Typeface.BOLD);
         layout.addView(title);
 
         TextView instructions = new TextView(this);
         instructions.setText(
-                "In Instagram, open a reel, tap Share, and pick Reel Saver. "
-                        + "The video is saved to Movies/Reel Saver in your gallery.\n\n"
-                        + "Or paste a reel link here:");
+                "In Instagram, open a photo post or reel, tap Share, and pick Reel Saver. "
+                        + "Photos are grouped by post in Download/Reel Saver. Reels save to Movies/Reel Saver.\n\n"
+                        + "Or paste an Instagram link here:");
         instructions.setPadding(0, dp(12), 0, dp(12));
         layout.addView(instructions);
 
@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         Button download = new Button(this);
-        download.setText("Download reel");
+        download.setText("Download");
         LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         buttonParams.topMargin = dp(12);
@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
         download.setOnClickListener(v -> {
             String text = linkInput.getText().toString().trim();
             if (text.isEmpty()) {
-                Toast.makeText(this, "Paste a reel link first.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Paste an Instagram link first.", Toast.LENGTH_SHORT).show();
                 return;
             }
             startDownload(text);
@@ -101,7 +101,7 @@ public class MainActivity extends Activity {
         layout.addView(statusText);
 
         TextView note = new TextView(this);
-        note.setText("Reels from private accounts can't be saved without logging in, "
+        note.setText("Posts from private accounts can't be saved without logging in, "
                 + "and Reel Saver never asks for your Instagram password.");
         note.setPadding(0, dp(24), 0, 0);
         note.setTextSize(13);

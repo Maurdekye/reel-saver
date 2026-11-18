@@ -1,13 +1,13 @@
 # Reel Saver
 
-Reel Saver is a small Android app that saves an Instagram reel to your phone as a normal
-video file. In Instagram, share a reel to **Reel Saver** and it downloads the video to
-**Movies/Reel Saver**, where it shows up in your gallery like any other video.
+Share a public Instagram photo post, carousel, or reel to **Reel Saver**.
+Photos are numbered in slide order in **Download/Reel Saver/&lt;post-code&gt;/**.
+Reels are saved to **Movies/Reel Saver** in the gallery.
 
 - No Instagram login. Reel Saver never asks for your password or cookies.
-- Because of that, reels from private accounts can't be saved. The app says so plainly
+- Because of that, posts from private accounts can't be saved. The app says so plainly
   when that happens.
-- You can also open the app and paste a reel link yourself.
+- You can also open the app and paste a post or reel link yourself.
 
 ## Install
 
@@ -18,11 +18,11 @@ Every release is signed with the same key, so a new version installs over the ol
 
 ## Use it
 
-**From Instagram:** open a reel, tap the share (paper plane) button, tap **Share** if
+**From Instagram:** open a post or reel, tap the share (paper plane) button, tap **Share** if
 Instagram shows its own share screen first, and pick **Reel Saver**. You'll get a
-notification when the video is saved. Tap it to watch.
+notification when the download is complete.
 
-**From the app:** open Reel Saver, paste a reel link, and tap **Download reel**.
+**From the app:** open Reel Saver, paste a post or reel link, and tap **Download**.
 
 ## How it works
 
